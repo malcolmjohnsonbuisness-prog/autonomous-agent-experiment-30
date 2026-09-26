@@ -1,112 +1,62 @@
-Google: Gemini 2.5 Flash
-
-You are absolutely right. Copying and pasting large blocks, especially with sensitive YAML indentation, is prone to errors. My apologies for not providing the full, clean `agent.yml` content in one go last time.
-
-Here is the **complete and corrected `agent.yml` content**. You can copy this entire block and paste it directly into the GitHub Actions workflow editor.
-
-**Steps to replace the `agent.yml` content:**
-
-1.  **Go to your GitHub Repository.**
-2.  **Click on the `.github` folder**, then the `workflows` folder, and then **click on `agent.yml`**.
-3.  Click the **pencil icon (or "Edit this file")** to edit the `agent.yml` file.
-4.  **Select ALL existing content** in the editor (Ctrl+A or Cmd+A).
-5.  **Delete ALL existing content.**
-6.  **Paste the entire block below** into the now-empty editor.
-7.  **Scroll down and click "Commit changes"** (or "Commit new file" if it was empty).
-8.  Add a commit message like "Fix agent.yml to correct 'on' block" and commit directly to your main branch.
-
----
-
-```yaml
 name: Agent Workflow
 
-on:
-  workflow_dispatch: # Allows manual triggering from GitHub Actions UI
+'on':
+  workflow_dispatch:
   schedule:
-    # Scout for trends (runs 'produce' which includes scout, score, draft, critique, queue)
-    # The 'produce' command in agent.py will check if it's the right time for scouting.
-    # This ensures content generation happens before publishing.
-    - cron: '30 13 * * *' # Example: 1:30 PM UTC daily
-    
-    # Publish due content (runs 'publish')
-    - cron: '0 14 * * *' # Example: 2:00 PM UTC daily
-
-    # Analyze performance and adapt strategy (runs 'analyze')
-    - cron: '0 22 * * *' # Example: 10:00 PM UTC daily
+    - cron: '30 13 * * *'
+    - cron: '0 14 * * *'
+    - cron: '30 14 * * *'
+    - cron: '0 22 * * *'
 
 jobs:
   run-agent:
     runs-on: ubuntu-latest
     env:
-      PYTHONUNBUFFERED: "1" # Ensures logs appear in real-time
-    
-    # Secrets for LLM and Telegram. X (Twitter) are optional.
-    # Ensure these are configured in your repository secrets!
+      PYTHONUNBUFFERED: '1'
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
       LLM_MODEL_NAME: ${{ secrets.LLM_MODEL_NAME }}
-      # Optional X (Twitter) API Keys - only needed if you enable X publishing in config.yaml
       X_API_KEY: ${{ secrets.X_API_KEY }}
       X_API_SECRET: ${{ secrets.X_API_SECRET }}
       X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
       X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
 
     steps:
-      - name: Checkout code
+      - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # Or any recent stable version, e.g., '3.11', '3.12'
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # Install tweepy if X publishing is enabled in config.yaml AND keys are provided
-          # The agent.py will check if X API keys are present at runtime.
           pip install tweepy
 
-      - name: Check Halted Status
-        id: check_halted
+      - name: Check halted status
+        id: halted
+        shell: bash
         run: |
           if [ -f state/HALTED ]; then
-            echo "Agent is manually halted. Skipping workflow run."
-            echo "HALTED=true" >> "$GITHUB_ENV"
+            echo "halted=true" >> "$GITHUB_OUTPUT"
+            echo "Agent is halted; skipping agent commands."
           else
-            echo "HALTED=false" >> "$GITHUB_ENV"
+            echo "halted=false" >> "$GITHUB_OUTPUT"
           fi
-        shell: bash
 
-      - name: Run Agent Cycle (Produce)
-        # This step runs the full content generation (scout, score, draft, critique, queue)
-        # It's triggered by the 13:30 UTC cron, or manually via workflow_dispatch.
-        if: env.HALTED == 'false' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '30 13 * * *')
+      - name: Produce content
+        if: steps.halted.outputs.halted == 'false' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '30 13 * * *' || github.event.schedule == '30 14 * * *')
         run: python agent.py produce
 
-      - name: Run Publish Due Content
-        # This step publishes content that has been queued and is scheduled.
-        # It's triggered by the 14:00 UTC cron, or manually via workflow_dispatch.
-        if: env.HALTED == 'false' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 14 * * *')
+      - name: Publish due content
+        if: steps.halted.outputs.halted == 'false' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 14 * * *')
         run: python agent.py publish
 
-      - name: Run Analyze & Adapt Cycle
-        # This step records metrics and adapts the agent's strategy.
-        # It's triggered by the 22:00 UTC cron, or manually via workflow_dispatch.
-        if: env.HALTED == 'false' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 22 * * *')
+      - name: Analyze and adapt
+        if: steps.halted.outputs.halted == 'false' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 22 * * *')
         run: python agent.py analyze
-      
-      # Persist the 'state/' directory for subsequent runs.
-      # This saves logs, queue, and strategy across different workflow executions.
-      - name: Upload State Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-state
-          path: state/
-          retention-days: 30 # Retain state for the duration of the experiment
-          # This ensures that the 'state' directory is downloaded at the start of the next run,
-          # allowing for persistence between cron jobs.
-```
