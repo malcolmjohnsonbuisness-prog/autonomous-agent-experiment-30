@@ -1,0 +1,43 @@
+# AUTONOMOUS-30 configuration — edit freely, the agent reads this every run
+niche:
+  name: "AI tools & workflows for small business owners"
+  audience: "non-technical small business owners, freelancers, solopreneurs"
+  promise: "AI explained like a smart friend, not a computer science lecture"
+
+sources:
+  subreddits:
+    - smallbusiness
+    - entrepreneur
+    - productivity
+    - artificial
+    - ChatGPT
+    - solopreneur
+  rss:
+    - https://techcrunch.com/category/artificial-intelligence/feed/
+    - https://www.theverge.com/rss/ai-artificial-intelligence/index.xml
+
+cadence:
+  posts_per_day: 3        # short posts (Telegram + X)
+  longform_per_day: 1     # deep-dive article (stored to content library)
+  best_hours_utc: [14, 19]  # publish slots
+
+quality:
+  critic_threshold: 8     # rewrite anything scoring below this (out of 10)
+  max_rewrites: 2
+  forbidden:
+    - unverifiable statistics
+    - filler style openings
+    - engagement-bait questions as endings
+
+strategy:
+  exploration_ratio: 0.3   # share of posts that try new formats/topics
+  double_down_threshold: 1.5  # topic >1.5x median engagement → make more like it
+
+kill_conditions:
+  consecutive_api_errors: 5     # halt after 5 straight failures
+  account_ban_detected: true    # halt on auth/ban errors, alert human
+  telegram_post_failures: 10
+
+metrics:
+  track: [views, reactions, followers, link_clicks]
+  log_daily: true
