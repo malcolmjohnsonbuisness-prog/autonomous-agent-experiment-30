@@ -1,0 +1,104 @@
+name: Agent Workflow
+
+on:
+  workflow_dispatch: # Allows manual triggering from GitHub Actions UI
+  schedule:
+    # Scout for trends at 13:30 UTC
+    - cron: '30 13 * * *'
+    # Publish due content at 14:00 UTC
+    - cron: '0 14 * * *'
+    # Run main produce cycle (score, draft, critique, queue) at 14:30 UTC
+    - cron: '30 14 * * *'
+    # Analyze performance and adapt strategy at 22:00 UTC
+    - cron: '0 22 * * *'
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUNBUFFERED: "1" # Ensures logs appear in real-time
+    
+    # Secrets for LLM and Telegram. X (Twitter) are optional.
+    # Ensure these are configured in your repository secrets!
+    # TELEGRAM_BOT_TOKEN
+    # TELEGRAM_CHAT_ID
+    # LLM_API_KEY
+    # LLM_BASE_URL
+    # LLM_MODEL_NAME
+    # X_API_KEY (optional)
+    # X_API_SECRET (optional)
+    # X_ACCESS_TOKEN (optional)
+    # X_ACCESS_TOKEN_SECRET (optional)
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+      LLM_MODEL_NAME: ${{ secrets.LLM_MODEL_NAME }}
+      X_API_KEY: ${{ secrets.X_API_KEY }}
+      X_API_SECRET: ${{ secrets.X_API_SECRET }}
+      X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+      X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' # Or any recent stable version, e.g., '3.11', '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Install tweepy if X publishing is enabled
+          # This will run even if X is not enabled in config.yaml, which is fine.
+          # The agent.py will check if X API keys are present.
+          pip install tweepy
+
+      - name: Check Halted Status
+        id: check_halted
+        run: |
+          if [ -f state/HALTED ]; then
+            echo "Agent is manually halted. Skipping workflow run."
+            echo "HALTED=true" >> "$GITHUB_ENV"
+          else
+            echo "HALTED=false" >> "$GITHUB_ENV"
+          fi
+        shell: bash
+
+      - name: Run Scout & Produce Cycle
+        if: env.HALTED == 'false' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '30 13 * * *' || github.event.schedule == '30 14 * * *')
+        run: python agent.py produce
+        # The 'produce' command internally handles scouting, scoring, drafting, critiquing, and queuing.
+        # We explicitly trigger it for the '30 13 * * *' (scout time) and '30 14 * * *' (produce time) schedules.
+        # When workflow_dispatch is used, it will also run 'produce'.
+
+      - name: Run Publish Due Content
+        if: env.HALTED == 'false' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 14 * * *')
+        run: python agent.py publish
+        # This runs separately at 14:00 UTC to publish whatever is due in the queue.
+
+      - name: Run Analyze & Adapt Cycle
+        if: env.HALTED == 'false' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '0 22 * * *')
+        run: python agent.py analyze
+        # This runs separately at 22:00 UTC to record metrics and adapt strategy.
+      
+      # Persist state/ directory for subsequent runs
+      - name: Upload State Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-state
+          path: state/
+          retention-days: 30 # Retain state for the duration of the experiment
+
+      - name: Download State Artifact (for next run's context)
+        # This step is mostly for conceptual clarity; upload/download happens per job run.
+        # State is already persistent if `upload-artifact` is used and downloaded in subsequent jobs.
+        # For this single-job setup, the state is local within the run, but artifact helps persistence across runs.
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-state
+          path: state/
+        continue-on-error: true # It's okay if artifact doesn't exist on first run
